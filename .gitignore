@@ -308,4 +308,6 @@ Temporary Items
 # Support for Project snippet scope
 !.vscode/*.code-snippets
 
+build.sh
+
 # End of https://www.toptal.com/developers/gitignore/api/osx,linux,go,node,intellij+all,visualstudiocode
