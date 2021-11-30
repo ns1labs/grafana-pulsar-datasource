@@ -1,5 +1,5 @@
 {
-  "name": "ns-1-labs-pulsar-datasource",
+  "name": "ns1labs-pulsar-datasource",
   "version": "1.0.0",
   "description": "Pulsar Datasource Plugin",
   "scripts": {
@@ -11,7 +11,7 @@
     "start": "yarn watch"
   },
   "author": "NS1 Labs",
-  "license": "Apache-2.0",
+  "license": "MPL-2.0",
   "devDependencies": {
     "@grafana/data": "latest",
     "@grafana/toolkit": "latest",
