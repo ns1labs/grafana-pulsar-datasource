@@ -2,13 +2,13 @@ import { DataQuery, DataSourceJsonData } from '@grafana/data';
 
 export enum MetricType {
   PERF = 'performance',
-  AVAIL = 'availability'
+  AVAIL = 'availability',
 }
 
 export interface PulsarQuery extends DataQuery {
-  customerID: number,
-  appID?: string,
-  jobList: string[],
+  customerID: number;
+  appID?: string;
+  jobList: string[];
   metricType: MetricType;
 }
 
@@ -23,7 +23,7 @@ export const defaultQuery: Partial<PulsarQuery> = {
  * These are options configured for each DataSource instance.
  */
 export interface PulsarDataSourceOptions extends DataSourceJsonData {
-  customerID: number,
+  customerID: number;
 }
 
 /**

@@ -11,10 +11,9 @@ const { FormField } = LegacyForms;
 type Props = QueryEditorProps<DataSource, PulsarQuery, PulsarDataSourceOptions>;
 
 export class QueryEditor extends PureComponent<Props> {
-
   onAppIDChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { onRunQuery } = this.props;
-    this.setState({appId: event.target.value})
+    this.setState({ appId: event.target.value });
     // Refresh jobID
     onRunQuery();
   };
@@ -25,13 +24,7 @@ export class QueryEditor extends PureComponent<Props> {
 
     return (
       <div className="gf-form">
-        <FormField
-          width={6}
-          value={appID}
-          onChange={this.onAppIDChange}
-          label="App ID"
-          type="string"
-        />
+        <FormField width={6} value={appID} onChange={this.onAppIDChange} label="App ID" type="string" />
       </div>
     );
   }

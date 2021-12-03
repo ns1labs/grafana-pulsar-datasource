@@ -26,7 +26,7 @@ export class ConfigEditor extends PureComponent<Props, State> {
       customerID: parseInt(event.target.value, 10),
     };
     onOptionsChange({ ...options, jsonData });
-  }
+  };
 
   // Secure field (only sent to the backend)
   onAPIKeyChange = (event: ChangeEvent<HTMLInputElement>) => {
