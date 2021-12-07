@@ -1,0 +1,9 @@
+version: "3"
+services:
+  grafana:
+    image: grafana/grafana:8.3.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - "${GRAFANA_PLUGINS_ROOT_DEV}:/var/lib/grafana/plugins"
+      - "./grafana.ini:/etc/grafana/grafana.ini"
