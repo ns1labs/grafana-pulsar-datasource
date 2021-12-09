@@ -20,13 +20,6 @@ export const defaultQuery: Partial<PulsarQuery> = {
 };
 
 /**
- * These are options configured for each DataSource instance.
- */
-export interface PulsarDataSourceOptions extends DataSourceJsonData {
-  customerID: number;
-}
-
-/**
  * Value that is used in the backend, but never sent over HTTP to the frontend
  */
 export interface SecureJsonData {

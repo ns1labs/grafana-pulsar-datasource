@@ -1,36 +1,19 @@
 import React, { ChangeEvent, PureComponent } from 'react';
 import { LegacyForms } from '@grafana/ui';
-import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
-import { PulsarDataSourceOptions, SecureJsonData } from './types';
+import { DataSourcePluginOptionsEditorProps, DataSourceJsonData } from '@grafana/data';
+import { SecureJsonData } from './types';
 
-const { SecretFormField, FormField } = LegacyForms;
+const { SecretFormField } = LegacyForms;
 
-interface Props extends DataSourcePluginOptionsEditorProps<PulsarDataSourceOptions> {}
+interface Props extends DataSourcePluginOptionsEditorProps<DataSourceJsonData, SecureJsonData> {}
 
 interface State {}
 
 export class ConfigEditor extends PureComponent<Props, State> {
-  onPathChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { onOptionsChange, options } = this.props;
-    const jsonData = {
-      ...options.jsonData,
-      path: event.target.value,
-    };
-    onOptionsChange({ ...options, jsonData });
-  };
-
-  onCustomerIDChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { onOptionsChange, options } = this.props;
-    const jsonData = {
-      ...options.jsonData,
-      customerID: parseInt(event.target.value, 10),
-    };
-    onOptionsChange({ ...options, jsonData });
-  };
-
   // Secure field (only sent to the backend)
   onAPIKeyChange = (event: ChangeEvent<HTMLInputElement>) => {
     const { onOptionsChange, options } = this.props;
+
     onOptionsChange({
       ...options,
       secureJsonData: {
@@ -41,6 +24,7 @@ export class ConfigEditor extends PureComponent<Props, State> {
 
   onResetAPIKey = () => {
     const { onOptionsChange, options } = this.props;
+
     onOptionsChange({
       ...options,
       secureJsonFields: {
@@ -56,26 +40,16 @@ export class ConfigEditor extends PureComponent<Props, State> {
 
   render() {
     const { options } = this.props;
-    const { jsonData, secureJsonFields } = options;
-    const secureJsonData = (options.secureJsonData || {}) as SecureJsonData;
+
+    const { secureJsonFields } = options;
+    const secureJsonData = (options.secureJsonData || {});
 
     return (
       <div className="gf-form-group">
-        <div className="gf-form">
-          <FormField
-            label="Customer ID"
-            labelWidth={6}
-            inputWidth={10}
-            onChange={this.onCustomerIDChange}
-            value={jsonData.customerID}
-            placeholder="Customer ID"
-          />
-        </div>
-
         <div className="gf-form-inline">
           <div className="gf-form">
             <SecretFormField
-              isConfigured={(secureJsonFields && secureJsonFields.apiKey) as boolean}
+              isConfigured={Boolean(secureJsonFields && secureJsonFields.apiKey)}
               value={secureJsonData.apiKey || ''}
               label="API Key"
               placeholder="NS1 API Key"
