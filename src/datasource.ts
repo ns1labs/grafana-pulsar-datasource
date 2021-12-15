@@ -1,9 +1,9 @@
 import { DataSourceInstanceSettings } from '@grafana/data';
 import { DataSourceWithBackend } from '@grafana/runtime';
-import { PulsarDataSourceOptions, PulsarQuery } from './types';
+import { PulsarQuery } from './types';
 
-export class DataSource extends DataSourceWithBackend<PulsarQuery, PulsarDataSourceOptions> {
-  constructor(instanceSettings: DataSourceInstanceSettings<PulsarDataSourceOptions>) {
+export class DataSource extends DataSourceWithBackend<PulsarQuery> {
+  constructor(instanceSettings: DataSourceInstanceSettings) {
     super(instanceSettings);
   }
 }
