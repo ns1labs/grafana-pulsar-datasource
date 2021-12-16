@@ -3,13 +3,13 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana-plugin-sdk-go/live"
 )
 
 var Logger = log.DefaultLogger
@@ -37,7 +37,9 @@ func NewPulsarDatasource(_ backend.DataSourceInstanceSettings) (instancemgmt.Ins
 
 // PulsarDatasource is an example datasource which can respond to data queries, reports
 // its health and has streaming skills.
-type PulsarDatasource struct{}
+type PulsarDatasource struct {
+	pulsarClient *PulsarClient
+}
 
 // Dispose here tells plugin SDK that plugin wants to clean up resources when a new instance
 // created. As soon as datasource settings change detected by SDK old datasource instance will
@@ -51,10 +53,20 @@ func (p *PulsarDatasource) Dispose() {
 // The QueryDataResponse contains a map of RefID to the response for each query, and each response
 // contains Frames ([]*Frame).
 func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+	// var err error
+
 	log.DefaultLogger.Info("QueryData called", "request", req)
 
 	// create response struct
 	response := backend.NewQueryDataResponse()
+
+	if p.pulsarClient == nil {
+		apiKey, ok := req.PluginContext.DataSourceInstanceSettings.DecryptedSecureJSONData[APIKey]
+		if !ok {
+			return response, fmt.Errorf("API key not found in the request")
+		}
+		p.pulsarClient = NewPulsarClient(apiKey)
+	}
 
 	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
@@ -69,7 +81,7 @@ func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryData
 }
 
 type queryModel struct {
-	WithStreaming bool `json:"withStreaming"`
+	AppID string `json:"appid"`
 }
 
 func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
@@ -92,17 +104,13 @@ func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		data.NewField("values", nil, []int64{10, 20}),
 	)
 
-	// If query called with streaming on then return a channel
-	// to subscribe on a client-side and consume updates from a plugin.
-	// Feel free to remove this if you don't need streaming for your datasource.
-	if qm.WithStreaming {
-		channel := live.Channel{
-			Scope:     live.ScopeDatasource,
-			Namespace: pCtx.DataSourceInstanceSettings.UID,
-			Path:      "stream",
-		}
-		frame.SetMeta(&data.FrameMeta{Channel: channel.String()})
+	apps, err := p.pulsarClient.GetApps(PulsarAppFetchJobs(true))
+	if err != nil {
+		response.Error = err
+		return response
 	}
+
+	frame.Meta = &data.FrameMeta{Custom: apps}
 
 	// add the frames to the response.
 	response.Frames = append(response.Frames, frame)
@@ -119,6 +127,7 @@ func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 
 	var (
 		apiKey string
+		client *PulsarClient
 		ok     bool
 	)
 
@@ -137,18 +146,24 @@ func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 		}, nil
 	}
 
-	if apiKey, ok = settings.DecryptedSecureJSONData[keyAPI]; !ok {
+	if apiKey, ok = settings.DecryptedSecureJSONData[APIKey]; !ok {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
 			Message: "API key not present",
 		}, nil
 	}
 
-	if err := checkAPIKey(apiKey); err != nil {
+	client = NewPulsarClient(apiKey)
+
+	if err := client.CheckAPIKey(apiKey); err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
 			Message: err.Error(),
 		}, nil
+	}
+
+	if p.pulsarClient == nil {
+		p.pulsarClient = client
 	}
 
 	return &backend.CheckHealthResult{
