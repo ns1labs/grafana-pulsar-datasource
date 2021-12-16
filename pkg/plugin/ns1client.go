@@ -62,7 +62,10 @@ func (pc *PulsarClient) getAPIClient(apiKey string) *ns1api.Client {
 
 	client, exists := pc.apiClientCache[apiKey]
 	if !exists {
-		client = ns1api.NewClient(httpClient, ns1api.SetAPIKey(apiKey))
+		client = ns1api.NewClient(
+			&http.Client{Timeout: timeout},
+			ns1api.SetAPIKey(apiKey),
+		)
 		pc.apiClientCache[apiKey] = client
 	}
 
