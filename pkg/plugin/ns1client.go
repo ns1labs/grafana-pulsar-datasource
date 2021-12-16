@@ -1,12 +1,9 @@
 package plugin
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
-	"net/url"
+	"sync"
 	"time"
 
 	ns1api "gopkg.in/ns1/ns1-go.v2/rest"
@@ -52,9 +49,24 @@ type PulsarData struct {
 }
 
 type PulsarClient struct {
-	apiKey    string
-	apiClient *ns1api.Client
-	data      *PulsarData
+	apiClientCache map[string]*ns1api.Client
+	apiClientLock  sync.RWMutex
+	data           *PulsarData
+}
+
+// getAPIClient maintains a local cache of the NS1 api clients for each API key
+// handled. This way we can set the api key at the QueryEditor level.
+func (pc *PulsarClient) getAPIClient(apiKey string) *ns1api.Client {
+	pc.apiClientLock.Lock()
+	defer pc.apiClientLock.Unlock()
+
+	client, exists := pc.apiClientCache[apiKey]
+	if !exists {
+		client = ns1api.NewClient(httpClient, ns1api.SetAPIKey(apiKey))
+		pc.apiClientCache[apiKey] = client
+	}
+
+	return client
 }
 
 // CheckAPIKey verifies the provided API key against the NS1 API. It returns
@@ -75,12 +87,14 @@ func (pc *PulsarClient) CheckAPIKey(apiKey string) error {
 	}
 
 	// Update the client as the api key has changed
-	pc.apiClient = client
+	pc.apiClientLock.Lock()
+	pc.apiClientCache[apiKey] = client
+	pc.apiClientLock.Unlock()
 
 	return nil
 }
 
-func PulsarAppFetchJobs(fetchJobs bool) PulsarAppParameter {
+func OptionAppFetchJobs(fetchJobs bool) PulsarAppParameter {
 	return func(p *PulsarAppParameters) {
 		p.FetchJobs = fetchJobs
 	}
@@ -92,14 +106,11 @@ func PulsarAppFetchInactive(fetchInactive bool) PulsarAppParameter {
 	}
 }
 
-func (pc *PulsarClient) GetApps(params ...PulsarAppParameter) ([]App, error) {
+func (pc *PulsarClient) GetApps(apiKey string, params ...PulsarAppParameter) ([]App, error) {
 	var (
-		req    *http.Request
-		resp   *http.Response
-		ns1Url *url.URL
-		body   []byte
-		err    error
-		apps   []App
+		pulsarApps []*pulsar.Application
+		err        error
+		apps       []App
 	)
 
 	if pc.data != nil {
@@ -115,32 +126,10 @@ func (pc *PulsarClient) GetApps(params ...PulsarAppParameter) ([]App, error) {
 		param(parameters)
 	}
 
-	ns1Url, err = url.Parse(
-		fmt.Sprintf("%spulsar/apps", pc.apiClient.Endpoint.String()),
-	)
+	apiClient := pc.getAPIClient(apiKey)
+
+	pulsarApps, _, err = apiClient.Applications.List()
 	if err != nil {
-		return nil, err
-	}
-
-	req = &http.Request{
-		Method: http.MethodGet,
-		URL:    ns1Url,
-		Header: map[string][]string{
-			"X-NSONE-Key": []string{pc.apiKey},
-		},
-	}
-
-	if resp, err = httpClient.Do(req); err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if body, err = io.ReadAll(resp.Body); err != nil {
-		return nil, err
-	}
-
-	pulsarApps := make([]pulsar.Application, 0)
-	if err = json.Unmarshal(body, &pulsarApps); err != nil {
 		return nil, err
 	}
 
@@ -157,7 +146,7 @@ func (pc *PulsarClient) GetApps(params ...PulsarAppParameter) ([]App, error) {
 		}
 
 		if parameters.FetchJobs {
-			apps[i].Jobs, err = pc.GetJobs(pulsarApp.ID, params...)
+			apps[i].Jobs, err = pc.GetJobs(apiKey, pulsarApp.ID, params...)
 			if err != nil {
 				return nil, err
 			}
@@ -172,20 +161,23 @@ func (pc *PulsarClient) GetApps(params ...PulsarAppParameter) ([]App, error) {
 	return apps, nil
 }
 
-func PulsarJobsFetchInactive(fetchInactive bool) PulsarAppParameter {
+// OptionJobsFetchInactive indicates that the API must also retrieve jobs
+// marked as inactive along with active ones.
+func OptionJobsFetchInactive(fetchInactive bool) PulsarAppParameter {
 	return func(p *PulsarAppParameters) {
 		p.FetchInactiveJobs = fetchInactive
 	}
 }
 
-func (pc *PulsarClient) GetJobs(appID string, params ...PulsarAppParameter) ([]Job, error) {
+func (pc *PulsarClient) GetJobs(apiKey, appID string, params ...PulsarAppParameter) ([]Job, error) {
 	var (
 		jobs  []Job
 		err   error
 		pjobs []*pulsar.PulsarJob
 	)
 
-	pjobs, _, err = pc.apiClient.PulsarJobs.List(appID)
+	apiClient := pc.getAPIClient(apiKey)
+	pjobs, _, err = apiClient.PulsarJobs.List(appID)
 	if err != nil {
 		return nil, err
 	}
@@ -211,11 +203,8 @@ func (pc *PulsarClient) GetJobs(appID string, params ...PulsarAppParameter) ([]J
 }
 
 // NewPulsarClient is the default constructor for the Pulsar Client object.
-func NewPulsarClient(apiKey string) *PulsarClient {
-	apiClient := ns1api.NewClient(httpClient, ns1api.SetAPIKey(apiKey))
-
+func NewPulsarClient() *PulsarClient {
 	return &PulsarClient{
-		apiKey:    apiKey,
-		apiClient: apiClient,
+		apiClientCache: make(map[string]*ns1api.Client),
 	}
 }

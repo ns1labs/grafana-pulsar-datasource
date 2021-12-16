@@ -20,9 +20,9 @@ func getApiKey(t *testing.T) string {
 
 func TestPulsarClient_GetPulsarApps(t *testing.T) {
 	apiKey := getApiKey(t)
-	client := NewPulsarClient(apiKey)
+	client := NewPulsarClient()
 
-	apps, err := client.GetApps(PulsarAppFetchJobs(true))
+	apps, err := client.GetApps(apiKey, OptionAppFetchJobs(true))
 	if err != nil {
 		t.Errorf("error getting pulsar apps: %v", err)
 		return

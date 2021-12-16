@@ -3,7 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -28,6 +28,10 @@ var (
 	_ backend.CheckHealthHandler    = (*PulsarDatasource)(nil)
 	_ backend.StreamHandler         = (*PulsarDatasource)(nil)
 	_ instancemgmt.InstanceDisposer = (*PulsarDatasource)(nil)
+
+	errDataSourceInstanceSettingsNil = errors.New("data source instance settings not present in the plugin context")
+	errDecryptedSecureDataNil        = errors.New("secure decrypted data not found")
+	errAPIKeyNotFound                = errors.New("NS1 API key not found")
 )
 
 // NewPulsarDatasource creates a new datasource instance.
@@ -61,11 +65,7 @@ func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryData
 	response := backend.NewQueryDataResponse()
 
 	if p.pulsarClient == nil {
-		apiKey, ok := req.PluginContext.DataSourceInstanceSettings.DecryptedSecureJSONData[APIKey]
-		if !ok {
-			return response, fmt.Errorf("API key not found in the request")
-		}
-		p.pulsarClient = NewPulsarClient(apiKey)
+		p.pulsarClient = NewPulsarClient()
 	}
 
 	// loop over queries and execute them individually.
@@ -87,6 +87,12 @@ type queryModel struct {
 func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
 	response := backend.DataResponse{}
 
+	apiKey, err := getAPIKeyFromContext(pCtx)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+
 	// Unmarshal the JSON into our queryModel.
 	var qm queryModel
 
@@ -104,7 +110,7 @@ func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 		data.NewField("values", nil, []int64{10, 20}),
 	)
 
-	apps, err := p.pulsarClient.GetApps(PulsarAppFetchJobs(true))
+	apps, err := p.pulsarClient.GetApps(apiKey, OptionAppFetchJobs(true))
 	if err != nil {
 		response.Error = err
 		return response
@@ -127,8 +133,8 @@ func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 
 	var (
 		apiKey string
+		err    error
 		client *PulsarClient
-		ok     bool
 	)
 
 	if req == nil {
@@ -138,22 +144,33 @@ func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 		}, nil
 	}
 
-	settings := req.PluginContext.DataSourceInstanceSettings
-	if settings == nil || settings.DecryptedSecureJSONData == nil {
+	apiKey, err = getAPIKeyFromContext(req.PluginContext)
+	if err != nil {
+		if errors.Is(err, errDataSourceInstanceSettingsNil) {
+			return &backend.CheckHealthResult{
+				Status:  backend.HealthStatusError,
+				Message: "backend received nil settings",
+			}, nil
+		}
+		if errors.Is(err, errDecryptedSecureDataNil) {
+			return &backend.CheckHealthResult{
+				Status:  backend.HealthStatusError,
+				Message: err.Error(),
+			}, nil
+		}
+		if errors.Is(err, errAPIKeyNotFound) {
+			return &backend.CheckHealthResult{
+				Status:  backend.HealthStatusError,
+				Message: "API key not present",
+			}, nil
+		}
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
-			Message: "backend received nil settings",
+			Message: err.Error(),
 		}, nil
 	}
 
-	if apiKey, ok = settings.DecryptedSecureJSONData[APIKey]; !ok {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: "API key not present",
-		}, nil
-	}
-
-	client = NewPulsarClient(apiKey)
+	client = NewPulsarClient()
 
 	if err := client.CheckAPIKey(apiKey); err != nil {
 		return &backend.CheckHealthResult{
@@ -233,4 +250,22 @@ func (p *PulsarDatasource) PublishStream(_ context.Context, req *backend.Publish
 	return &backend.PublishStreamResponse{
 		Status: backend.PublishStreamStatusPermissionDenied,
 	}, nil
+}
+
+func getAPIKeyFromContext(pluginContext backend.PluginContext) (string, error) {
+	if pluginContext.DataSourceInstanceSettings == nil {
+		return "", errDataSourceInstanceSettingsNil
+	}
+
+	dsis := pluginContext.DataSourceInstanceSettings
+	if dsis.DecryptedSecureJSONData == nil {
+		return "", errDecryptedSecureDataNil
+	}
+
+	apiKey, exists := dsis.DecryptedSecureJSONData[APIKey]
+	if !exists {
+		return "", errAPIKeyNotFound
+	}
+
+	return apiKey, nil
 }
