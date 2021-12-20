@@ -127,8 +127,8 @@ func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 	// add fields.
 	dataLabel := buildLabel("Akamai", qm.AppID, qm.JobID, "Job Name", geo, asn)
 	frame.Fields = append(frame.Fields,
-		data.NewField("time", nil, []time.Time{query.TimeRange.From, query.TimeRange.To}),
-		data.NewField("values", nil, []int64{10, 20}),
+		data.NewField("time", nil, times),
+		data.NewField(dataLabel, nil, values),
 	)
 
 	apps, err := p.pulsarClient.GetApps(apiKey, OptionAppFetchJobs(true))
