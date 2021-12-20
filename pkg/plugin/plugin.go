@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -34,6 +35,14 @@ var (
 	errAPIKeyNotFound                = errors.New("NS1 API key not found")
 )
 
+type queryModel struct {
+	AppID      string `json:"appid"`
+	JobID      string `json:"jobid"`
+	MetricType string `json:"metricType"`
+	From,
+	To time.Time
+}
+
 // NewPulsarDatasource creates a new datasource instance.
 func NewPulsarDatasource(_ backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	return &PulsarDatasource{}, nil
@@ -57,10 +66,6 @@ func (p *PulsarDatasource) Dispose() {
 // The QueryDataResponse contains a map of RefID to the response for each query, and each response
 // contains Frames ([]*Frame).
 func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	// var err error
-
-	log.DefaultLogger.Info("QueryData called", "request", req)
-
 	// create response struct
 	response := backend.NewQueryDataResponse()
 
@@ -80,12 +85,20 @@ func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryData
 	return response, nil
 }
 
-type queryModel struct {
-	AppID string `json:"appid"`
+func buildLabel(appName, appID, jobID, metric, geo, asn string) string {
+	return fmt.Sprintf("%s (%s):%s:%s:%s:%s", appName, appID, jobID, metric, geo, asn)
 }
 
 func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
-	response := backend.DataResponse{}
+	var (
+		qm       queryModel
+		response backend.DataResponse
+		geo      = "*"
+		asn      = "*"
+		agg      = "p99"
+		times    = []time.Time{query.TimeRange.From, query.TimeRange.To}
+		values   = []float64{10, 20}
+	)
 
 	apiKey, err := getAPIKeyFromContext(pCtx)
 	if err != nil {
@@ -94,8 +107,6 @@ func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 	}
 
 	// Unmarshal the JSON into our queryModel.
-	var qm queryModel
-
 	response.Error = json.Unmarshal(query.JSON, &qm)
 	if response.Error != nil {
 		return response
@@ -104,7 +115,17 @@ func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 	// create data frame response.
 	frame := data.NewFrame("response")
 
+	// test
+	geo = "US"
+	qm.From = query.TimeRange.From
+	qm.To = query.TimeRange.To
+
+	if qm.AppID != "" && qm.JobID != "" {
+		times, values, err = p.pulsarClient.GetPerformanceData(apiKey, qm, geo, asn, agg)
+	}
+
 	// add fields.
+	dataLabel := buildLabel("Akamai", qm.AppID, qm.JobID, "Job Name", geo, asn)
 	frame.Fields = append(frame.Fields,
 		data.NewField("time", nil, []time.Time{query.TimeRange.From, query.TimeRange.To}),
 		data.NewField("values", nil, []int64{10, 20}),
