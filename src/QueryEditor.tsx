@@ -60,12 +60,12 @@ export class QueryEditor extends PureComponent<Props> {
       query.jobid &&
       query.metricType &&
       query.agg &&
-      (prevProps.query.appid != query.appid ||
-        prevProps.query.jobid != query.jobid ||
-        prevProps.query.metricType != query.metricType ||
-        prevProps.query.agg != query.agg ||
-        prevProps.query.geo != query.geo ||
-        prevProps.query.asn != query.asn)
+      (prevProps.query.appid !== query.appid ||
+        prevProps.query.jobid !== query.jobid ||
+        prevProps.query.metricType !== query.metricType ||
+        prevProps.query.agg !== query.agg ||
+        prevProps.query.geo !== query.geo ||
+        prevProps.query.asn !== query.asn)
     ) {
       // run a new query
       onRunQuery();
