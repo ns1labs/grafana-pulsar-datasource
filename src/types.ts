@@ -6,6 +6,22 @@ export enum MetricType {
   DECISIONS = 'decisions',
 }
 
+export enum AggType {
+  AVG = 'avg',
+  MAX = 'max',
+  MIN = 'min',
+  P50 = 'p50',
+  P75 = 'p75',
+  P90 = 'p90',
+  P95 = 'p95',
+  P99 = 'p99',
+}
+
+export enum QueryType {
+  INITIAL_APPS_JOBS_FETCH = 'initialAppsJobsFetch',
+  REGULAR = 'regular',
+}
+
 export interface PulsarApp {
   name: string;
   appid: string;
@@ -21,6 +37,9 @@ export interface PulsarQuery extends DataQuery {
   appid?: string;
   jobid?: string;
   metricType?: MetricType;
+  agg?: string;
+  geo?: string;
+  asn?: string;
 }
 
 /**
