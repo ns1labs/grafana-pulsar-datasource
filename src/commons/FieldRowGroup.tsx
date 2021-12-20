@@ -13,10 +13,10 @@ export const FieldRowGroup: FC = ({ children }) => {
 const getStyles = (theme: GrafanaTheme) => css`
   width: 100%;
   display: flex;
-    > * {
-      flex-basis: 100%;
-    }
-    > * + * {
-      margin-left: ${theme.spacing.sm};
-    }
+  > * {
+    flex-basis: 100%;
+  }
+  > * + * {
+    margin-left: ${theme.spacing.sm};
+  }
 `;
