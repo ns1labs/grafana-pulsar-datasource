@@ -27,7 +27,6 @@ var Logger = log.DefaultLogger
 var (
 	_ backend.QueryDataHandler      = (*PulsarDatasource)(nil)
 	_ backend.CheckHealthHandler    = (*PulsarDatasource)(nil)
-	_ backend.StreamHandler         = (*PulsarDatasource)(nil)
 	_ instancemgmt.InstanceDisposer = (*PulsarDatasource)(nil)
 
 	errDataSourceInstanceSettingsNil = errors.New("data source instance settings not present in the plugin context")
@@ -36,11 +35,28 @@ var (
 )
 
 type queryModel struct {
-	AppID      string `json:"appid"`
-	JobID      string `json:"jobid"`
-	MetricType string `json:"metricType"`
+	AppID       string `json:"appid"`
+	JobID       string `json:"jobid"`
+	MetricType  string `json:"metricType"`
+	Geo         string `json:"geo"`
+	ASN         string `json:"asn"`
+	Aggregation string `json:"agg"`
 	From,
 	To time.Time
+	MaxDataPoints int64
+}
+
+func (qm *queryModel) validate() {
+	if qm.Geo == "" {
+		qm.Geo = "*"
+	}
+	if qm.ASN == "" {
+		qm.ASN = "*"
+	}
+}
+
+func (qm *queryModel) canQuery() bool {
+	return qm.AppID != "" && qm.JobID != "" && qm.MetricType != "" && qm.Aggregation != ""
 }
 
 // NewPulsarDatasource creates a new datasource instance.
@@ -85,59 +101,66 @@ func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryData
 	return response, nil
 }
 
-func buildLabel(appName, appID, jobID, metric, geo, asn string) string {
-	return fmt.Sprintf("%s (%s):%s:%s:%s:%s", appName, appID, jobID, metric, geo, asn)
+func buildLabel(appName, jobName string, qm *queryModel) string {
+	return fmt.Sprintf("%s (%s):%s (%s):%s:%s:%s:%s", appName, qm.AppID,
+		jobName, qm.JobID, qm.MetricType, qm.Aggregation, qm.Geo, qm.ASN,
+	)
 }
 
 func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
 	var (
-		qm       queryModel
-		response backend.DataResponse
-		geo      = "*"
-		asn      = "*"
-		agg      = "p99"
-		times    = []time.Time{query.TimeRange.From, query.TimeRange.To}
-		values   = []float64{10, 20}
+		qm           = &queryModel{}
+		response     backend.DataResponse
+		times        = []time.Time{query.TimeRange.From, query.TimeRange.To}
+		values       = []float64{0, 0}
+		err          error
+		apiKey       string
+		dataLabel    string
+		appsResponse *GetAppsResponse
 	)
 
-	apiKey, err := getAPIKeyFromContext(pCtx)
+	apiKey, err = getAPIKeyFromContext(pCtx)
 	if err != nil {
 		response.Error = err
 		return response
 	}
 
 	// Unmarshal the JSON into our queryModel.
-	response.Error = json.Unmarshal(query.JSON, &qm)
+	response.Error = json.Unmarshal(query.JSON, qm)
 	if response.Error != nil {
+		return response
+	}
+	// convert the "" to "*" for geo and asn
+	qm.validate()
+
+	appsResponse, err = p.pulsarClient.GetApps(apiKey, OptionAppFetchJobs(true))
+	if err != nil {
+		response.Error = err
 		return response
 	}
 
 	// create data frame response.
 	frame := data.NewFrame("response")
 
-	// test
-	geo = "US"
 	qm.From = query.TimeRange.From
 	qm.To = query.TimeRange.To
+	qm.MaxDataPoints = query.MaxDataPoints
 
-	if qm.AppID != "" && qm.JobID != "" {
-		times, values, err = p.pulsarClient.GetPerformanceData(apiKey, qm, geo, asn, agg)
+	if qm.canQuery() {
+		times, values, err = p.pulsarClient.GetData(apiKey, qm)
+
+		app := appsResponse.AppsMap[qm.AppID]
+		job := appsResponse.JobsMap[qm.JobID]
+		dataLabel = buildLabel(app.Name, job.Name, qm)
 	}
 
 	// add fields.
-	dataLabel := buildLabel("Akamai", qm.AppID, qm.JobID, "Job Name", geo, asn)
 	frame.Fields = append(frame.Fields,
 		data.NewField("time", nil, times),
 		data.NewField(dataLabel, nil, values),
 	)
 
-	apps, err := p.pulsarClient.GetApps(apiKey, OptionAppFetchJobs(true))
-	if err != nil {
-		response.Error = err
-		return response
-	}
-
-	frame.Meta = &data.FrameMeta{Custom: apps}
+	frame.Meta = &data.FrameMeta{Custom: appsResponse.Apps}
 
 	// add the frames to the response.
 	response.Frames = append(response.Frames, frame)
@@ -207,69 +230,6 @@ func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 	return &backend.CheckHealthResult{
 		Status:  backend.HealthStatusOk,
 		Message: "Data source status correct",
-	}, nil
-}
-
-// SubscribeStream is called when a client wants to connect to a stream. This callback
-// allows sending the first message.
-func (p *PulsarDatasource) SubscribeStream(_ context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
-	log.DefaultLogger.Info("SubscribeStream called", "request", req)
-
-	status := backend.SubscribeStreamStatusPermissionDenied
-	if req.Path == "stream" {
-		// Allow subscribing only on expected path.
-		status = backend.SubscribeStreamStatusOK
-	}
-	return &backend.SubscribeStreamResponse{
-		Status: status,
-	}, nil
-}
-
-// RunStream is called once for any open channel.  Results are shared with everyone
-// subscribed to the same channel.
-func (p *PulsarDatasource) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
-	log.DefaultLogger.Info("RunStream called", "request", req)
-
-	// Create the same data frame as for query data.
-	frame := data.NewFrame("response")
-
-	// Add fields (matching the same schema used in QueryData).
-	frame.Fields = append(frame.Fields,
-		data.NewField("time", nil, make([]time.Time, 1)),
-		data.NewField("values", nil, make([]int64, 1)),
-	)
-
-	counter := 0
-
-	// Stream data frames periodically till stream closed by Grafana.
-	for {
-		select {
-		case <-ctx.Done():
-			log.DefaultLogger.Info("Context done, finish streaming", "path", req.Path)
-			return nil
-		case <-time.After(time.Second):
-			// Send new data periodically.
-			frame.Fields[0].Set(0, time.Now())
-			frame.Fields[1].Set(0, int64(10*(counter%2+1)))
-
-			counter++
-
-			err := sender.SendFrame(frame, data.IncludeAll)
-			if err != nil {
-				log.DefaultLogger.Error("Error sending frame", "error", err)
-				continue
-			}
-		}
-	}
-}
-
-// PublishStream is called when a client sends a message to the stream.
-func (p *PulsarDatasource) PublishStream(_ context.Context, req *backend.PublishStreamRequest) (*backend.PublishStreamResponse, error) {
-	log.DefaultLogger.Info("PublishStream called", "request", req)
-
-	// Do not allow publishing at all.
-	return &backend.PublishStreamResponse{
-		Status: backend.PublishStreamStatusPermissionDenied,
 	}, nil
 }
 

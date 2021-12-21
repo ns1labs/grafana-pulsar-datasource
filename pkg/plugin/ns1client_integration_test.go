@@ -63,7 +63,3 @@ func TestPulsarClient_GetPulsarApps(t *testing.T) {
 
 	fmt.Printf("%s\n", string(appsBytes))
 }
-
-func TestPulsarClient_GetPerformanceData(t *testing.T) {
-
-}

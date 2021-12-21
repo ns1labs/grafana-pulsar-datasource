@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"sync"
 	"time"
 
@@ -26,7 +25,8 @@ const (
 var (
 	errAuthorizationDenied = errors.New("invalid API key")
 	errDataRetrieval       = errors.New("error retrieving data, make sure start " +
-		"and and end times don't overlap and the time span in no longer than 30 days")
+		"and and end times don't overlap and the time span it's no longer than 30 days")
+	errNoDataFound = errors.New("no data found")
 
 	httpClient = &http.Client{Timeout: timeout}
 )
@@ -43,17 +43,12 @@ type App struct {
 	Jobs  []Job  `json:"jobs"`
 }
 
-type DataPoint [2]float64
-type DataPointSlice []DataPoint
-type DataByASN map[string]DataPointSlice
-
-type DataPoints struct {
-	Agg            string               `json:"agg"`
-	Graph          map[string]DataByASN `json:"graph"`
-	EndTimestamp   int64                `json:"end_ts"`
-	StartTimestamp int64                `json:"stop_ts"`
-	JobID          string               `json:"jobid"`
-	AppID          string               `json:"appid"`
+// GetAppsResponse holds the Apps and Jobs info in two formats: A slice for the
+// UI and a couple of maps for internal use.
+type GetAppsResponse struct {
+	Apps    []App
+	AppsMap map[string]App
+	JobsMap map[string]Job
 }
 
 type PulsarAppParameters struct {
@@ -66,7 +61,7 @@ type PulsarAppParameter func(p *PulsarAppParameters)
 
 // PulsarData is the data struct for passing apps and jobs info to the Frontend.
 type PulsarData struct {
-	Applications []App `json:"applications,omitempty"`
+	Applications *GetAppsResponse `json:"applications,omitempty"`
 	ttl          time.Duration
 	expiresOn    time.Time
 }
@@ -132,11 +127,10 @@ func PulsarAppFetchInactive(fetchInactive bool) PulsarAppParameter {
 	}
 }
 
-func (pc *PulsarClient) GetApps(apiKey string, params ...PulsarAppParameter) ([]App, error) {
+func (pc *PulsarClient) GetApps(apiKey string, params ...PulsarAppParameter) (*GetAppsResponse, error) {
 	var (
 		pulsarApps []*pulsar.Application
 		err        error
-		apps       []App
 	)
 
 	if pc.data != nil {
@@ -159,32 +153,42 @@ func (pc *PulsarClient) GetApps(apiKey string, params ...PulsarAppParameter) ([]
 		return nil, err
 	}
 
-	apps = make([]App, len(pulsarApps))
+	appsResponse := &GetAppsResponse{
+		Apps:    make([]App, len(pulsarApps)),
+		AppsMap: make(map[string]App),
+		JobsMap: make(map[string]Job),
+	}
+
 	for i, pulsarApp := range pulsarApps {
-		if parameters.FetchInactiveApps {
+		if !pulsarApp.Active && !parameters.FetchInactiveApps {
 			// skip inactive apps
 			continue
 		}
-		apps[i] = App{
+		appsResponse.Apps[i] = App{
 			AppID: pulsarApp.ID,
 			Name:  pulsarApp.Name,
 			Jobs:  []Job{},
 		}
+		appsResponse.AppsMap[pulsarApp.ID] = appsResponse.Apps[i]
 
 		if parameters.FetchJobs {
-			apps[i].Jobs, err = pc.GetJobs(apiKey, pulsarApp.ID, params...)
+			appsResponse.Apps[i].Jobs, err = pc.GetJobs(apiKey, pulsarApp.ID, params...)
 			if err != nil {
 				return nil, err
+			}
+			for _, j := range appsResponse.Apps[i].Jobs {
+				appsResponse.JobsMap[j.JobID] = j
 			}
 		}
 	}
 
 	// replace current data
 	pc.data = &PulsarData{
-		Applications: apps,
+		Applications: appsResponse,
+		// Calculate new TTLs
 	}
 
-	return apps, nil
+	return appsResponse, nil
 }
 
 // OptionJobsFetchInactive indicates that the API must also retrieve jobs
@@ -228,40 +232,47 @@ func (pc *PulsarClient) GetJobs(apiKey, appID string, params ...PulsarAppParamet
 	return jobs, nil
 }
 
-func (pc *PulsarClient) GetPerformanceData(apiKey string, query queryModel, geo, asn, agg string) ([]time.Time, []float64, error) {
+func (pc *PulsarClient) buildURL(endpoint string, qm *queryModel) (*url.URL, error) {
+	var urlStr string
+
+	if qm.MetricType == metricTypePerformance {
+		urlStr = fmt.Sprintf("%spulsar/query/performance/time", endpoint)
+	} else {
+		urlStr = fmt.Sprintf("%spulsar/query/availability/time", endpoint)
+	}
+
+	urlStr = fmt.Sprintf("%s?start=%d&end=%d&jobs=%s", urlStr,
+		qm.From.Unix(), qm.To.Unix(), qm.JobID)
+
+	if len(qm.Aggregation) > 0 {
+		urlStr = fmt.Sprintf("%s&agg=%s", urlStr, qm.Aggregation)
+	}
+	if qm.Geo == "*" {
+		urlStr = fmt.Sprintf("%s&area=GLOBAL", urlStr)
+	} else {
+		urlStr = fmt.Sprintf("%s&area=%s", urlStr, qm.Geo)
+	}
+	if qm.ASN != "*" {
+		urlStr = fmt.Sprintf("%s&asn=%s", urlStr, qm.ASN)
+	}
+
+	return url.Parse(urlStr)
+}
+
+func (pc *PulsarClient) GetData(apiKey string, query *queryModel) ([]time.Time, []float64, error) {
 	var (
-		parsedAsn int64
-		err       error
-		resp      *http.Response
+		apiURL *url.URL
+		resp   *http.Response
+		err    error
+		times  []time.Time
+		values []float64
+		body   []byte
+		offset int64
 	)
+
 	apiClient := pc.getAPIClient(apiKey)
 
-	urlStr := fmt.Sprintf("%spulsar/apps/%s/jobs/%s/data?start=%d&end=%d",
-		apiClient.Endpoint.String(),
-		query.AppID,
-		query.JobID,
-		query.From.Unix(),
-		query.To.Unix(),
-	)
-
-	if len(geo) > 0 && geo != "*" {
-		urlStr = fmt.Sprintf("%s&geo=%s", urlStr, geo)
-	}
-
-	if asn != "" && asn != "*" {
-		parsedAsn, err = strconv.ParseInt(asn, 10, 64)
-		if err != nil {
-			return nil, nil, err
-		}
-		urlStr = fmt.Sprintf("%s&asn=%d", urlStr, parsedAsn)
-	}
-
-	if len(agg) > 0 {
-		urlStr = fmt.Sprintf("%s&agg=%s", urlStr, agg)
-	}
-
-	apiURL, err := url.Parse(urlStr)
-	if err != nil {
+	if apiURL, err = pc.buildURL(apiClient.Endpoint.String(), query); err != nil {
 		return nil, nil, err
 	}
 
@@ -273,37 +284,48 @@ func (pc *PulsarClient) GetPerformanceData(apiKey string, query queryModel, geo,
 		},
 	}
 
-	resp, err = httpClient.Do(req)
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	var dataPoints DataPoints
-	err = json.Unmarshal(body, &dataPoints)
-	if err != nil {
+	if resp, err = httpClient.Do(req); err != nil {
 		return nil, nil, err
 	}
-	times, values := ConvertDataPoints(geo, asn, dataPoints)
-	// json := fmt.Sprintf("%s", string(body))
-	// Logger.Info(json)
-
-	return times, values, nil
-}
-
-func ConvertDataPoints(geo, asn string, dp DataPoints) ([]time.Time, []float64) {
-	var (
-		times  []time.Time
-		values []float64
-	)
-
-	data := dp.Graph[geo][asn]
-	times = make([]time.Time, len(data))
-	values = make([]float64, len(data))
-
-	for i, dataPoint := range data {
-		times[i] = time.Unix(int64(dataPoint[0]), 0)
-		values[i] = dataPoint[1]
+	defer resp.Body.Close()
+	// This error can be returned by the API.
+	if resp.StatusCode == http.StatusBadRequest {
+		return nil, nil, errDataRetrieval
 	}
 
-	return times, values
+	if body, err = io.ReadAll(resp.Body); err != nil {
+		return nil, nil, err
+	}
+
+	data := make([]map[string]float64, 0)
+	if err = json.Unmarshal(body, &data); err != nil {
+		return nil, nil, err
+	}
+
+	size := int64(len(data))
+	if size == 0 {
+		return nil, nil, errNoDataFound
+	}
+	totalSize := size
+
+	if query.MaxDataPoints < size {
+		offset = size - query.MaxDataPoints
+		size = query.MaxDataPoints
+	}
+
+	times = make([]time.Time, size)
+	values = make([]float64, size)
+	var idx int
+
+	// Retrieve the latest data
+	for i := offset; i < totalSize; i++ {
+		dataPoint := data[i]
+		times[idx] = time.Unix(int64(dataPoint["timestamp"]), 0)
+		values[idx] = dataPoint[query.JobID]
+		idx++
+	}
+
+	return times, values, nil
 }
 
 // NewPulsarClient is the default constructor for the Pulsar Client object.
