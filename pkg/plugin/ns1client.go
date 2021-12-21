@@ -15,11 +15,13 @@ import (
 )
 
 const (
-	timeout                = time.Second * 15
+	timeout = time.Second * 15
+	// APIKey is the key to get the NS1 API Key from the decrypted secure data.
 	APIKey                 = "apiKey"
 	metricTypePerformance  = "performance"
 	metricTypeAvailability = "availability"
 	metricTypeDecisions    = "decisions"
+	appsDefaultTTL         = 600 * time.Second
 )
 
 var (
@@ -31,6 +33,7 @@ var (
 	httpClient = &http.Client{Timeout: timeout}
 )
 
+// Job is a basic model to put info usable by the frontend.
 type Job struct {
 	JobID string `json:"jobid"`
 	Name  string `json:"name"`
@@ -43,14 +46,16 @@ type App struct {
 	Jobs  []Job  `json:"jobs"`
 }
 
-// GetAppsResponse holds the Apps and Jobs info in two formats: A slice for the
-// UI and a couple of maps for internal use.
+// GetAppsResponse holds the App and Job info in two formats: A slice to be
+// conveyed to the UI and a couple of maps for internal caching.
 type GetAppsResponse struct {
 	Apps    []App
 	AppsMap map[string]App
 	JobsMap map[string]Job
 }
 
+// PulsarAppParameters are all the options available to retrieve Apps and Jobs.
+// The options are dynamically provided.
 type PulsarAppParameters struct {
 	FetchInactiveApps bool
 	FetchJobs         bool
@@ -59,13 +64,51 @@ type PulsarAppParameters struct {
 
 type PulsarAppParameter func(p *PulsarAppParameters)
 
-// PulsarData is the data struct for passing apps and jobs info to the Frontend.
+// PulsarData is the data struct for caching Apps and Jobs.
+// Given that the plugin instance can use only one API Key, these values will be
+// the same for any user of the plugin.
+// The ttl field it's expressed in seconds.
 type PulsarData struct {
-	Applications *GetAppsResponse `json:"applications,omitempty"`
+	applications *GetAppsResponse
 	ttl          time.Duration
 	expiresOn    time.Time
+	lock         sync.RWMutex
 }
 
+func (pd *PulsarData) isExpired() bool {
+	return time.Now().UTC().Unix() >= pd.expiresOn.UTC().Unix()
+}
+
+func (pd *PulsarData) setExpiration() {
+	pd.expiresOn = time.Now().UTC().Add(pd.ttl)
+}
+
+func (pd *PulsarData) setAppsResponse(appsResponse *GetAppsResponse) {
+	pd.lock.Lock()
+	defer pd.lock.Unlock()
+	pd.applications = appsResponse
+}
+
+func (pd *PulsarData) getAppsResponse() *GetAppsResponse {
+	pd.lock.RLock()
+	defer pd.lock.RUnlock()
+	return pd.applications
+}
+
+// NewPulsarData is the constructor for the Pulsar Data (apps and jobs).
+func NewPulsarData(appsResponse *GetAppsResponse, ttl time.Duration) *PulsarData {
+	pd := &PulsarData{
+		applications: appsResponse,
+		ttl:          ttl,
+		lock:         sync.RWMutex{},
+	}
+	pd.setExpiration()
+
+	return pd
+}
+
+// PulsarClient is the main Object and contain the implementation of the
+// Query Logic.
 type PulsarClient struct {
 	apiClientCache map[string]*ns1api.Client
 	apiClientLock  sync.RWMutex
@@ -101,41 +144,46 @@ func (pc *PulsarClient) CheckAPIKey(apiKey string) error {
 	// is correct.
 	_, response, _ = client.PulsarJobs.List("*")
 	if response != nil {
-		statusCode := response.StatusCode
-		if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		if response.StatusCode == http.StatusUnauthorized ||
+			response.StatusCode == http.StatusForbidden {
 			return errAuthorizationDenied
 		}
 	}
 
-	// Update the client as the api key has changed
+	// Update the client as the api key may have changed
 	pc.apiClientLock.Lock()
+	defer pc.apiClientLock.Unlock()
 	pc.apiClientCache[apiKey] = client
-	pc.apiClientLock.Unlock()
 
 	return nil
 }
 
+// OptionAppFetchJobs indicates the GetApp function to retrieve the Job list for
+// each Pulsar App.
 func OptionAppFetchJobs(fetchJobs bool) PulsarAppParameter {
 	return func(p *PulsarAppParameters) {
 		p.FetchJobs = fetchJobs
 	}
 }
 
+// PulsarAppFetchInactive indicates the GetApp function to retrieve Apps marked
+// as Inactive.
 func PulsarAppFetchInactive(fetchInactive bool) PulsarAppParameter {
 	return func(p *PulsarAppParameters) {
 		p.FetchInactiveApps = fetchInactive
 	}
 }
 
+// GetApps query the NS1 API and retrieves the Pulsar Apps and optionally their
+// Pulsar Jobs.
 func (pc *PulsarClient) GetApps(apiKey string, params ...PulsarAppParameter) (*GetAppsResponse, error) {
 	var (
 		pulsarApps []*pulsar.Application
 		err        error
 	)
 
-	if pc.data != nil {
-		// Verify the TTL to refresh
-		return pc.data.Applications, nil
+	if pc.data != nil && !pc.data.isExpired() {
+		return pc.data.getAppsResponse(), nil
 	}
 
 	parameters := &PulsarAppParameters{
@@ -183,10 +231,7 @@ func (pc *PulsarClient) GetApps(apiKey string, params ...PulsarAppParameter) (*G
 	}
 
 	// replace current data
-	pc.data = &PulsarData{
-		Applications: appsResponse,
-		// Calculate new TTLs
-	}
+	pc.data = NewPulsarData(appsResponse, appsDefaultTTL)
 
 	return appsResponse, nil
 }
@@ -199,6 +244,7 @@ func OptionJobsFetchInactive(fetchInactive bool) PulsarAppParameter {
 	}
 }
 
+// GetJobs retrieves a Job slice given the appID.
 func (pc *PulsarClient) GetJobs(apiKey, appID string, params ...PulsarAppParameter) ([]Job, error) {
 	var (
 		jobs  []Job
@@ -259,6 +305,12 @@ func (pc *PulsarClient) buildURL(endpoint string, qm *queryModel) (*url.URL, err
 	return url.Parse(urlStr)
 }
 
+// GetData queries the NS1 API to fetch the performance or availability data.
+// It requires the actual query string and an instance of the queryModel.
+// Returns 3 values:
+//  - A slice of times. This is passed to the Frame.
+//  - A slice of values. This is passed to the Frame.
+//  - An error if something goes wrong.
 func (pc *PulsarClient) GetData(apiKey string, query *queryModel) ([]time.Time, []float64, error) {
 	var (
 		apiURL *url.URL

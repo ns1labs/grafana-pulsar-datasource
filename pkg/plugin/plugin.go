@@ -101,6 +101,8 @@ func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryData
 	return response, nil
 }
 
+// buildLabel creates a custom label for the time series. Puts all the relevant
+// info on the string.
 func buildLabel(appName, jobName string, qm *queryModel) string {
 	return fmt.Sprintf("%s (%s):%s (%s):%s:%s:%s:%s", appName, qm.AppID,
 		jobName, qm.JobID, qm.MetricType, qm.Aggregation, qm.Geo, qm.ASN,
@@ -173,8 +175,6 @@ func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 // datasource configuration page which allows users to verify that
 // a datasource is working as expected.
 func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	log.DefaultLogger.Info("CheckHealth called", "request", req)
-
 	var (
 		apiKey string
 		err    error
@@ -216,7 +216,7 @@ func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHeal
 
 	client = NewPulsarClient()
 
-	if err := client.CheckAPIKey(apiKey); err != nil {
+	if err = client.CheckAPIKey(apiKey); err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
 			Message: err.Error(),
