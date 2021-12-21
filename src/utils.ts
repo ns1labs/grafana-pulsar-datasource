@@ -3,7 +3,6 @@ import { MetricType, AggType } from './types';
 export const metricTypeDisplayName: Record<MetricType, string> = {
   [MetricType.PERFORMANCE]: 'Performance',
   [MetricType.AVAILABILITY]: 'Availability',
-  [MetricType.DECISIONS]: 'Decisions',
 };
 
 export const aggTypeDisplayName: Record<AggType, string> = {

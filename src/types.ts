@@ -3,7 +3,6 @@ import { DataQuery } from '@grafana/data';
 export enum MetricType {
   PERFORMANCE = 'performance',
   AVAILABILITY = 'availability',
-  DECISIONS = 'decisions',
 }
 
 export enum AggType {
