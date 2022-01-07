@@ -3,17 +3,19 @@ package plugin
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana-plugin-sdk-go/live"
 )
 
-// Make sure SampleDatasource implements required interfaces. This is important to do
+var Logger = log.DefaultLogger
+
+// Make sure PulsarDatasource implements required interfaces. This is important to do
 // since otherwise we will only get a not implemented error response from plugin in
 // runtime. In this example datasource instance implements backend.QueryDataHandler,
 // backend.CheckHealthHandler, backend.StreamHandler interfaces. Plugin should not
@@ -23,25 +25,55 @@ import (
 // is useful to clean up resources used by previous datasource instance when a new datasource
 // instance created upon datasource settings changed.
 var (
-	_ backend.QueryDataHandler      = (*SampleDatasource)(nil)
-	_ backend.CheckHealthHandler    = (*SampleDatasource)(nil)
-	_ backend.StreamHandler         = (*SampleDatasource)(nil)
-	_ instancemgmt.InstanceDisposer = (*SampleDatasource)(nil)
+	_ backend.QueryDataHandler      = (*PulsarDatasource)(nil)
+	_ backend.CheckHealthHandler    = (*PulsarDatasource)(nil)
+	_ instancemgmt.InstanceDisposer = (*PulsarDatasource)(nil)
+
+	errDataSourceInstanceSettingsNil = errors.New("data source instance settings not present in the plugin context")
+	errDecryptedSecureDataNil        = errors.New("secure decrypted data not found")
+	errAPIKeyNotFound                = errors.New("NS1 API key not found")
 )
 
-// NewSampleDatasource creates a new datasource instance.
-func NewSampleDatasource(_ backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-	return &SampleDatasource{}, nil
+type queryModel struct {
+	AppID       string `json:"appid"`
+	JobID       string `json:"jobid"`
+	MetricType  string `json:"metricType"`
+	Geo         string `json:"geo"`
+	ASN         string `json:"asn"`
+	Aggregation string `json:"agg"`
+	From,
+	To time.Time
+	MaxDataPoints int64
 }
 
-// SampleDatasource is an example datasource which can respond to data queries, reports
+func (qm *queryModel) validate() {
+	if qm.Geo == "" {
+		qm.Geo = "*"
+	}
+	if qm.ASN == "" {
+		qm.ASN = "*"
+	}
+}
+
+func (qm *queryModel) canQuery() bool {
+	return qm.AppID != "" && qm.JobID != "" && qm.MetricType != "" && qm.Aggregation != ""
+}
+
+// NewPulsarDatasource creates a new datasource instance.
+func NewPulsarDatasource(_ backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+	return &PulsarDatasource{}, nil
+}
+
+// PulsarDatasource is an example datasource which can respond to data queries, reports
 // its health and has streaming skills.
-type SampleDatasource struct{}
+type PulsarDatasource struct {
+	pulsarClient *PulsarClient
+}
 
 // Dispose here tells plugin SDK that plugin wants to clean up resources when a new instance
 // created. As soon as datasource settings change detected by SDK old datasource instance will
-// be disposed and a new one will be created using NewSampleDatasource factory function.
-func (d *SampleDatasource) Dispose() {
+// be disposed and a new one will be created using NewPulsarDatasource factory function.
+func (p *PulsarDatasource) Dispose() {
 	// Clean up datasource instance resources.
 }
 
@@ -49,15 +81,17 @@ func (d *SampleDatasource) Dispose() {
 // req contains the queries []DataQuery (where each query contains RefID as a unique identifier).
 // The QueryDataResponse contains a map of RefID to the response for each query, and each response
 // contains Frames ([]*Frame).
-func (d *SampleDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	log.DefaultLogger.Info("QueryData called", "request", req)
-
+func (p *PulsarDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	// create response struct
 	response := backend.NewQueryDataResponse()
 
+	if p.pulsarClient == nil {
+		p.pulsarClient = NewPulsarClient()
+	}
+
 	// loop over queries and execute them individually.
 	for _, q := range req.Queries {
-		res := d.query(ctx, req.PluginContext, q)
+		res := p.query(ctx, req.PluginContext, q)
 
 		// save the response in a hashmap
 		// based on with RefID as identifier
@@ -67,41 +101,68 @@ func (d *SampleDatasource) QueryData(ctx context.Context, req *backend.QueryData
 	return response, nil
 }
 
-type queryModel struct {
-	WithStreaming bool `json:"withStreaming"`
+// buildLabel creates a custom label for the time series. Puts all the relevant
+// info on the string.
+func buildLabel(appName, jobName string, qm *queryModel) string {
+	return fmt.Sprintf("%s (%s):%s (%s):%s:%s:%s:%s", appName, qm.AppID,
+		jobName, qm.JobID, qm.MetricType, qm.Aggregation, qm.Geo, qm.ASN,
+	)
 }
 
-func (d *SampleDatasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
-	response := backend.DataResponse{}
+func (p *PulsarDatasource) query(_ context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
+	var (
+		qm           = &queryModel{}
+		response     backend.DataResponse
+		times        = []time.Time{query.TimeRange.From, query.TimeRange.To}
+		values       = []float64{0, 0}
+		err          error
+		apiKey       string
+		dataLabel    string
+		appsResponse *GetAppsResponse
+	)
+
+	apiKey, err = getAPIKeyFromContext(pCtx)
+	if err != nil {
+		response.Error = err
+		return response
+	}
 
 	// Unmarshal the JSON into our queryModel.
-	var qm queryModel
-
-	response.Error = json.Unmarshal(query.JSON, &qm)
+	response.Error = json.Unmarshal(query.JSON, qm)
 	if response.Error != nil {
+		return response
+	}
+	// convert the "" to "*" for geo and asn
+	qm.validate()
+
+	appsResponse, err = p.pulsarClient.GetApps(apiKey, OptionAppFetchJobs(true))
+	if err != nil {
+		response.Error = err
 		return response
 	}
 
 	// create data frame response.
 	frame := data.NewFrame("response")
 
+	qm.From = query.TimeRange.From
+	qm.To = query.TimeRange.To
+	qm.MaxDataPoints = query.MaxDataPoints
+
+	if qm.canQuery() {
+		times, values, err = p.pulsarClient.GetData(apiKey, qm)
+
+		app := appsResponse.AppsMap[qm.AppID]
+		job := appsResponse.JobsMap[qm.JobID]
+		dataLabel = buildLabel(app.Name, job.Name, qm)
+	}
+
 	// add fields.
 	frame.Fields = append(frame.Fields,
-		data.NewField("time", nil, []time.Time{query.TimeRange.From, query.TimeRange.To}),
-		data.NewField("values", nil, []int64{10, 20}),
+		data.NewField("time", nil, times),
+		data.NewField(dataLabel, nil, values),
 	)
 
-	// If query called with streaming on then return a channel
-	// to subscribe on a client-side and consume updates from a plugin.
-	// Feel free to remove this if you don't need streaming for your datasource.
-	if qm.WithStreaming {
-		channel := live.Channel{
-			Scope:     live.ScopeDatasource,
-			Namespace: pCtx.DataSourceInstanceSettings.UID,
-			Path:      "stream",
-		}
-		frame.SetMeta(&data.FrameMeta{Channel: channel.String()})
-	}
+	frame.Meta = &data.FrameMeta{Custom: appsResponse.Apps}
 
 	// add the frames to the response.
 	response.Frames = append(response.Frames, frame)
@@ -113,82 +174,79 @@ func (d *SampleDatasource) query(_ context.Context, pCtx backend.PluginContext, 
 // The main use case for these health checks is the test button on the
 // datasource configuration page which allows users to verify that
 // a datasource is working as expected.
-func (d *SampleDatasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	log.DefaultLogger.Info("CheckHealth called", "request", req)
+func (p *PulsarDatasource) CheckHealth(_ context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+	var (
+		apiKey string
+		err    error
+		client *PulsarClient
+	)
 
-	var status = backend.HealthStatusOk
-	var message = "Data source is working"
+	if req == nil {
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: "backend received a nil request",
+		}, nil
+	}
 
-	if rand.Int()%2 == 0 {
-		status = backend.HealthStatusError
-		message = "randomized error"
+	apiKey, err = getAPIKeyFromContext(req.PluginContext)
+	if err != nil {
+		if errors.Is(err, errDataSourceInstanceSettingsNil) {
+			return &backend.CheckHealthResult{
+				Status:  backend.HealthStatusError,
+				Message: "backend received nil settings",
+			}, nil
+		}
+		if errors.Is(err, errDecryptedSecureDataNil) {
+			return &backend.CheckHealthResult{
+				Status:  backend.HealthStatusError,
+				Message: err.Error(),
+			}, nil
+		}
+		if errors.Is(err, errAPIKeyNotFound) {
+			return &backend.CheckHealthResult{
+				Status:  backend.HealthStatusError,
+				Message: "API key not present",
+			}, nil
+		}
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: err.Error(),
+		}, nil
+	}
+
+	client = NewPulsarClient()
+
+	if err = client.CheckAPIKey(apiKey); err != nil {
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: err.Error(),
+		}, nil
+	}
+
+	if p.pulsarClient == nil {
+		p.pulsarClient = client
 	}
 
 	return &backend.CheckHealthResult{
-		Status:  status,
-		Message: message,
+		Status:  backend.HealthStatusOk,
+		Message: "Data source status correct",
 	}, nil
 }
 
-// SubscribeStream is called when a client wants to connect to a stream. This callback
-// allows sending the first message.
-func (d *SampleDatasource) SubscribeStream(_ context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
-	log.DefaultLogger.Info("SubscribeStream called", "request", req)
-
-	status := backend.SubscribeStreamStatusPermissionDenied
-	if req.Path == "stream" {
-		// Allow subscribing only on expected path.
-		status = backend.SubscribeStreamStatusOK
+func getAPIKeyFromContext(pluginContext backend.PluginContext) (string, error) {
+	if pluginContext.DataSourceInstanceSettings == nil {
+		return "", errDataSourceInstanceSettingsNil
 	}
-	return &backend.SubscribeStreamResponse{
-		Status: status,
-	}, nil
-}
 
-// RunStream is called once for any open channel.  Results are shared with everyone
-// subscribed to the same channel.
-func (d *SampleDatasource) RunStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender) error {
-	log.DefaultLogger.Info("RunStream called", "request", req)
-
-	// Create the same data frame as for query data.
-	frame := data.NewFrame("response")
-
-	// Add fields (matching the same schema used in QueryData).
-	frame.Fields = append(frame.Fields,
-		data.NewField("time", nil, make([]time.Time, 1)),
-		data.NewField("values", nil, make([]int64, 1)),
-	)
-
-	counter := 0
-
-	// Stream data frames periodically till stream closed by Grafana.
-	for {
-		select {
-		case <-ctx.Done():
-			log.DefaultLogger.Info("Context done, finish streaming", "path", req.Path)
-			return nil
-		case <-time.After(time.Second):
-			// Send new data periodically.
-			frame.Fields[0].Set(0, time.Now())
-			frame.Fields[1].Set(0, int64(10*(counter%2+1)))
-
-			counter++
-
-			err := sender.SendFrame(frame, data.IncludeAll)
-			if err != nil {
-				log.DefaultLogger.Error("Error sending frame", "error", err)
-				continue
-			}
-		}
+	dsis := pluginContext.DataSourceInstanceSettings
+	if dsis.DecryptedSecureJSONData == nil {
+		return "", errDecryptedSecureDataNil
 	}
-}
 
-// PublishStream is called when a client sends a message to the stream.
-func (d *SampleDatasource) PublishStream(_ context.Context, req *backend.PublishStreamRequest) (*backend.PublishStreamResponse, error) {
-	log.DefaultLogger.Info("PublishStream called", "request", req)
+	apiKey, exists := dsis.DecryptedSecureJSONData[APIKey]
+	if !exists {
+		return "", errAPIKeyNotFound
+	}
 
-	// Do not allow publishing at all.
-	return &backend.PublishStreamResponse{
-		Status: backend.PublishStreamStatusPermissionDenied,
-	}, nil
+	return apiKey, nil
 }
