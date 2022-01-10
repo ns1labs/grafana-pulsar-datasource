@@ -33,19 +33,19 @@
     "screenshots": [
       {
         "name": "Configuration Screen",
-        "path": "src/img/pulsar-plugin-cfg.png"
+        "path": "img/pulsar-plugin-cfg.png"
       },
       {
         "name": "Confirmation Screen",
-        "path": "src/img/datasource-correct.png"
+        "path": "img/datasource-correct.png"
       },
       {
         "name": "Pulsar Query Editor",
-        "path": "src/img/pulsar-query-editor.png"
+        "path": "img/pulsar-query-editor.png"
       },
       {
         "name": "Query Editor Example",
-        "path": "src/img/query-editor-example.png"
+        "path": "img/query-editor-example.png"
       }
     ],
     "version": "%VERSION%",
