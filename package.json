@@ -24,8 +24,5 @@
   },
   "engines": {
     "node": ">=14"
-  },
-  "dependencies": {
-    "yarn": "^1.22.17"
   }
 }
