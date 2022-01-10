@@ -32,6 +32,24 @@ Once you enter your API Key, click on the `Save and Test` button. The Plugin wil
 verify your Key against the NS1 API. Once the key is verified, you can hit the `Back`
 button and continue with your dashboard creation.
 
+## Build
+
+For the backend part you can follow the instructions from the Grafana documentation.
+To build for all architectures, execute
+
+```shell
+mage -v buildAll
+```
+For the UI part, you can use the same commands as in the doc, but we're not using
+`yarn` as build tool:
+
+```shell
+rm -rf node_modules package-lock.json
+npm install
+npm run dev
+npm run build
+```
+
 [Confirmation Screen](src/img/datasource-correct.png)
 
 ## Query Data
