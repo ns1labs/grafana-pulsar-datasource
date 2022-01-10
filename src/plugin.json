@@ -10,7 +10,7 @@
     "description": "Pulsar Datasource Plugin",
     "author": {
       "name": "NS1 Labs",
-      "url": "https://ns1.com"
+      "url": "https://ns1.com/labs"
     },
     "keywords": [
       "ns1",
@@ -23,14 +23,31 @@
     "links": [
       {
         "name": "Website",
-        "url": "https://github.com/grafana/grafana-starter-datasource-backend"
+        "url": "https://github.com/ns1labs/grafana-pulsar-datasource"
       },
       {
         "name": "License",
-        "url": "https://github.com/grafana/grafana-starter-datasource-backend/blob/master/LICENSE"
+        "url": "https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/LICENSE"
       }
     ],
-    "screenshots": [],
+    "screenshots": [
+      {
+        "name": "Configuration Screen",
+        "path": "src/img/pulsar-plugin-cfg.png"
+      },
+      {
+        "name": "Confirmation Screen",
+        "path": "src/img/datasource-correct.png"
+      },
+      {
+        "name": "Pulsar Query Editor",
+        "path": "src/img/pulsar-query-editor.png"
+      },
+      {
+        "name": "Query Editor Example",
+        "path": "src/img/query-editor-example.png"
+      }
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
