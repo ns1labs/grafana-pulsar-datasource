@@ -57,7 +57,7 @@ npm run build
 After creating a dashboard, select as Data source `pulsar-datasource`. This will bring
 the Pulsar Query Editor.
 
-[Pulsar Query Editor](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/img/pulsar-query-editor.png?raw=true)
+[Pulsar Query Editor](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/pulsar-query-editor.png?raw=true)
 
 It is possible that the first time you use the Pulsar Datasource with the Query Editor 
 you may experience a little delay, as the backend is loading the Applications and Jobs.
