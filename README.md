@@ -70,7 +70,7 @@ but be aware that you may need to specify GEO and ASN to have meaningful data.
 If you don't specify at least a GEO code, you will be fetching the global behavior
 of the selected Job, and that may not be optimal.
 
-[Query Editor Example](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/query-editor-example.png)
+[Query Editor Example](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/query-editor-example.png?raw=true)
 
 You can add as many queries as you want, but you will usually add as many as the
 number of active jobs you have configured.
