@@ -309,5 +309,6 @@ Temporary Items
 !.vscode/*.code-snippets
 
 build.sh
+publish.sh
 
 # End of https://www.toptal.com/developers/gitignore/api/osx,linux,go,node,intellij+all,visualstudiocode

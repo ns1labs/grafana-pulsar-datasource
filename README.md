@@ -26,7 +26,7 @@ The configuration screen will only ask for a valid NS1 API key. This key will be
 used to query the NS1 API. Also, the key will be stored securely by Grafana in local
 storage.
 
-[Configuration Screen](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/pulsar-plugin-cfg.png?raw=true)
+[Configuration Screen](https://raw.githubusercontent.com/ns1labs/grafana-pulsar-datasource/main/src/img/pulsar-plugin-cfg.png)
 
 Once you enter your API Key, click on the `Save and Test` button. The Plugin will 
 verify your Key against the NS1 API. Once the key is verified, you can hit the `Back`
@@ -50,14 +50,14 @@ npm run dev
 npm run build
 ```
 
-[Confirmation Screen](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/datasource-correct.png?raw=true)
+[Confirmation Screen](https://raw.githubusercontent.com/ns1labs/grafana-pulsar-datasource/main/src/img/datasource-correct.png?raw=true)
 
 ## Query Data
 
 After creating a dashboard, select as Data source `pulsar-datasource`. This will bring
 the Pulsar Query Editor.
 
-[Pulsar Query Editor](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/pulsar-query-editor.png?raw=true)
+[Pulsar Query Editor](https://raw.githubusercontent.com/ns1labs/grafana-pulsar-datasource/main/src/img/pulsar-query-editor.png?raw=true)
 
 It is possible that the first time you use the Pulsar Datasource with the Query Editor 
 you may experience a little delay, as the backend is loading the Applications and Jobs.
@@ -70,7 +70,7 @@ but be aware that you may need to specify GEO and ASN to have meaningful data.
 If you don't specify at least a GEO code, you will be fetching the global behavior
 of the selected Job, and that may not be optimal.
 
-[Query Editor Example](https://github.com/ns1labs/grafana-pulsar-datasource/blob/main/src/img/query-editor-example.png?raw=true)
+[Query Editor Example](https://raw.githubusercontent.com/ns1labs/grafana-pulsar-datasource/main/src/img/query-editor-example.png?raw=true)
 
 You can add as many queries as you want, but you will usually add as many as the
 number of active jobs you have configured.
