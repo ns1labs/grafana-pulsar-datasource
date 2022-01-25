@@ -13,16 +13,19 @@
   "author": "NS1 Labs",
   "license": "MPL-2.0",
   "devDependencies": {
-    "@grafana/data": "latest",
-    "@grafana/toolkit": "latest",
-    "@grafana/runtime": "latest",
-    "@grafana/ui": "latest",
-    "@types/lodash": "latest"
+    "@grafana/data": "^8.3.4",
+    "@grafana/runtime": "^8.3.4",
+    "@grafana/toolkit": "^8.3.4",
+    "@grafana/ui": "^8.3.4",
+    "@types/lodash": "^4.14.178"
   },
   "resolutions": {
     "rxjs": "7.3.0"
   },
   "engines": {
-    "node": ">=14"
+    "node": ">=12"
+  },
+  "dependencies": {
+    "countries-list": "^2.6.1"
   }
 }

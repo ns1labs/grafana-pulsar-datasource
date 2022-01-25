@@ -7,14 +7,26 @@ import { Field, Input } from '@grafana/ui';
 import { QueryEditorProps } from '@grafana/data';
 
 import { DataSource } from './datasource';
-import { MetricType, QueryType, PulsarQuery, PulsarApp, AggType } from './types';
-import { metricTypeDisplayName, aggTypeDisplayName } from './utils';
+import { MetricType, QueryType, PulsarQuery, PulsarApp, AggType, Geo } from './types';
+import { metricTypeDisplayName, aggTypeDisplayName, getGeoList } from './utils';
 
 import { FieldRowGroup, Select } from './commons';
 
 type Props = QueryEditorProps<DataSource, PulsarQuery>;
 
-export class QueryEditor extends PureComponent<Props> {
+interface State {
+  geoList: Geo[];
+}
+
+export class QueryEditor extends PureComponent<Props, State> {
+  constructor(props: Props) {
+    super(props);
+
+    this.state = {
+      geoList: getGeoList(),
+    };
+  }
+
   componentDidMount() {
     const { data, query, onChange, onRunQuery } = this.props;
 
@@ -83,10 +95,9 @@ export class QueryEditor extends PureComponent<Props> {
 
   render() {
     const { query, data, onChange } = this.props;
+    const { geoList } = this.state;
 
     const appJobOptions = (data?.series && data.series[0]?.meta?.custom) as PulsarApp[] | undefined;
-
-    console.log(`...... Props of RefId ${this.props.query.refId}:`, this.props);
 
     return (
       <div>
@@ -148,25 +159,26 @@ export class QueryEditor extends PureComponent<Props> {
             />
           </Field>
           <Field label="Geo">
-            <Input
-              placeholder="For all geo, leave it blank or with a *"
-              value={query.geo || ''}
-              onChange={(event) =>
+            <Select
+              placeholder="Select a geo (leave it blank for all geo)"
+              options={geoList.map((geo) => ({
+                label: `${geo.flag} ${geo.name}`,
+                value: geo.code,
+              }))}
+              value={query.geo || null}
+              onChange={(option) =>
                 onChange({
                   ...query,
-                  geo: event.currentTarget.value || undefined,
-                  asn: event.currentTarget.value && event.currentTarget.value !== '*' ? query.asn : undefined,
+                  geo: option?.value,
+                  asn: option?.value ? query.asn : undefined,
                 })
               }
+              isClearable
             />
           </Field>
-          <Field label="ASN" disabled={!query.geo || query.geo === '*'}>
+          <Field label="ASN" disabled={!query.geo}>
             <Input
-              placeholder={
-                !query.geo || query.geo === '*'
-                  ? 'Enter a geo (country or state) to filter by ASN'
-                  : 'For all ASNs, leave it blank or with a *'
-              }
+              placeholder={!query.geo ? 'Select a geo to filter by ASN' : 'For all ASNs, leave it blank or with a *'}
               value={query.asn || ''}
               onChange={(event) => onChange({ ...query, asn: event.currentTarget.value || undefined })}
             />
