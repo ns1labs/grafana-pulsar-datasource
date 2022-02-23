@@ -29,7 +29,11 @@ storage.
 ![Configuration Screen](https://raw.githubusercontent.com/ns1labs/grafana-pulsar-datasource/main/src/img/pulsar-plugin-cfg.png)
 
 Once you enter your API Key, click on the `Save and Test` button. The Plugin will 
-verify your Key against the NS1 API. Once the key is verified, you can hit the `Back`
+verify your Key against the NS1 API.
+
+![Confirmation Screen](https://raw.githubusercontent.com/ns1labs/grafana-pulsar-datasource/main/src/img/datasource-correct.png?raw=true)
+
+After the key is verified, you can hit the `Back`
 button and continue with your dashboard creation.
 
 ## Build
@@ -40,17 +44,13 @@ To build for all architectures, execute
 ```shell
 mage -v buildAll
 ```
-For the UI part, you can use the same commands as in the doc, but we're not using
-`yarn` as build tool:
+For the frontend part:
 
 ```shell
-rm -rf node_modules package-lock.json
-npm install
-npm run dev
-npm run build
+yarn install
+yarn build
 ```
-
-![Confirmation Screen](https://raw.githubusercontent.com/ns1labs/grafana-pulsar-datasource/main/src/img/datasource-correct.png?raw=true)
+If something goes wrong when building the frontend, try to delete the *node_modules* and the *yarn.lock* file: `rm -rf node_modules yarn.lock`. Then repeat the commands (yarn install, yarn build).
 
 ## Query Data
 

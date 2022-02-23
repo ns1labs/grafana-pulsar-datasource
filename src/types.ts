@@ -45,6 +45,12 @@ export interface PulsarQuery extends DataQuery {
   asn?: string;
 }
 
+export interface Geo {
+  name: string;
+  code: string;
+  flag?: string;
+}
+
 /**
  * Value that is used in the backend, but never sent over HTTP to the frontend
  */
