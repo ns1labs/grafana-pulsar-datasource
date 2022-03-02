@@ -1,6 +1,6 @@
 {
   "name": "ns1labs-pulsar-datasource",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pulsar Datasource Plugin",
   "scripts": {
     "build": "grafana-toolkit plugin:build",
