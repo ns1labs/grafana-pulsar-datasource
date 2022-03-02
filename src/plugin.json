@@ -6,6 +6,7 @@
   "metrics": true,
   "backend": true,
   "executable": "gpx_pulsar-datasource",
+  "alerting": true,
   "info": {
     "description": "Pulsar Datasource Plugin",
     "author": {
