@@ -1,4 +1,4 @@
-# Pulsar Datasource Plugin
+# NS1 Pulsar Metrics Datasource Plugin
 
 The objective of the Plugin is to make it easier for Pulsar customers to query
 the NS1 API for Performance and Availability data of their pulsar Applications and
@@ -8,7 +8,7 @@ This is a backend datasource plugin, and it uses the public open source NS1 API 
 GoLang. You can find the library [here](https://github.com/ns1/ns1-go)
 
 This is a work in progress, and currently querying Performance and Availability data
-is supported.
+are supported.
 
 ## Installation
 

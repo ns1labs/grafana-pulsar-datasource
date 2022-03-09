@@ -1,25 +1,28 @@
 {
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/master/docs/sources/developers/plugins/plugin.schema.json",
   "type": "datasource",
-  "name": "pulsar-datasource",
-  "id": "ns1labs-pulsar-datasource",
+  "name": "NS1 Pulsar Metrics",
+  "id": "ns1labs-pulsar-metrics-datasource",
   "metrics": true,
   "backend": true,
   "executable": "gpx_pulsar-datasource",
   "alerting": true,
   "info": {
-    "description": "Pulsar Datasource Plugin",
+    "description": "A simple and easy way to visualize Pulsar RUM metrics",
     "author": {
       "name": "NS1 Labs",
       "url": "https://ns1.com/labs"
     },
     "keywords": [
       "ns1",
-      "pulsar"
+      "pulsar",
+      "rum",
+      "dns",
+      "cdn"
     ],
     "logos": {
-      "small": "img/logo.svg",
-      "large": "img/logo.svg"
+      "small": "img/logo.png",
+      "large": "img/logo.png"
     },
     "links": [
       {
