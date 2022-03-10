@@ -1,5 +1,5 @@
 {
-  "name": "ns1labs-pulsar-metrics-datasource",
+  "name": "ns1labs-pulsarmetrics-datasource",
   "version": "1.0.2",
   "description": "Pulsar RUM metrics data source plugin for Grafana",
   "scripts": {

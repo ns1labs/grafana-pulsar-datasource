@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/master/docs/sources/developers/plugins/plugin.schema.json",
   "type": "datasource",
   "name": "NS1 Pulsar Metrics",
-  "id": "ns1labs-pulsar-metrics-datasource",
+  "id": "ns1labs-pulsarmetrics-datasource",
   "metrics": true,
   "backend": true,
   "executable": "gpx_pulsar-datasource",
