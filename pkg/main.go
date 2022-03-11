@@ -9,7 +9,7 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	"github.com/grafana/grafana-starter-datasource-backend/pkg/plugin"
+	"github.com/ns1labs/grafana-pulsar-datasource/pkg/plugin"
 )
 
 func main() {

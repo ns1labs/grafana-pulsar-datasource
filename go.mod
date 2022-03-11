@@ -1,4 +1,4 @@
-module github.com/grafana/grafana-starter-datasource-backend
+module github.com/ns1labs/grafana-pulsar-datasource
 
 go 1.16
 
